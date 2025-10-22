@@ -54,19 +54,19 @@ from typing import Dict, Any, Literal, Annotated
 # - model_validator: cross-field validation hook (end_date > start_date).
 from pydantic import BaseModel, Field, PositiveFloat, model_validator
 
-# ...................................................CONSTANTS...................................................
+# ...................................................CONSTANTS...........................................................
 
 # Used to increment when breaking changes are made to schemas so downstream code can detect mismatches.
 SCHEMA_VERSION: str = "0.1.0"
 
-# .....................................................ENUMS.....................................................
+# .....................................................ENUMS.............................................................
 
 # Federal filing status. The state differentiation can be handled later.
 class FilingStatus(str, Enum):
     single = "single"
     married = "married"
 
-# .........................................FLEXIBLE RATE SPEC (3 PART SYSTEM)....................................
+# .........................................FLEXIBLE RATE SPEC (3 PART SYSTEM)............................................
 
 # Identifies the shape through "kind" and bounds the annual growth rate as a decimal (Ex: 0.03 = 3%).
 class RateValue(BaseModel):
@@ -109,7 +109,62 @@ class ReportingDeflator(str, Enum):
 # Configuration settings that apply to the entire simulation.
 # Keeps category growth independent while also allowing optional reporting adjustments.
 class GlobalInputs(BaseModel):
+
     # Compares versions to warn if it is using an old saved scenario.
     schema_version: str = Field(SCHEMA_VERSION, description="Schema version used to check compatibility")
-    # Simulation timeline window
-    birth_date: date | None = Field(None, description="Birth date for the age based timeline which is autopopulated if profile is filled out")
+    
+    # Simulation timeline window.
+    # Birth date for the age based timeline which is autopopulated if profile is filled out.
+    birth_date: date | None = Field(None, 
+        description="Birth date for the age based timeline which is autopopulated if profile is filled out")
+    # Current age which is automatically calulcated from the birth_date unless it isn't provided.
+    # Used as a reference point for the age-based timeline mode.
+    current_age: float | None = Field(None, 
+        description="Current age which is automatically calulcated from the birth_date unless it isn't provided")
+    # Determines whether the dates are specified directly or calculated from given age.
+    timeline_mode: Literal["date", "age"] = Field("date", 
+        description="Specifies 'date' for direct dates and 'age' for age-based calculations")
+    
+
+    # Used when the timeline_mode is only in "age".
+    # Start age defaults to current_age if not specified and end_age defaults to end_option preset if not specified.
+    start_age: float | None = Field(None, 
+        description = "Starting age for the simulation where 'None' means to use the current_age")
+    end_option: Literal["retirement", "lifespan"] | None = Field("retirement", 
+        description="The present endpoint when end_age is not specified ('retirement' = 65.5 and 'lifespan' = 80)")
+    end_age: float | None = Field(None, 
+        description="Ending age for simulation where 'None' means to use the end_option preset)
+
+
+    # Actual timeline dates used in simulation (either provided directly or calculated from ages).
+    # Fields are required but can be "None" initially if it is using age-based mode.
+    start_date: date | None = Field(None,
+        description="First month of simulation (YYYY-MM-DD) - calculated if it is on age-based mode")
+    end_date: date | None = Field(None,
+        description="Last month of simulation (YYYY-MM-DD) - calculated if it is on age-based mode")
+
+
+    # Different filing statuses for tax purposes - can auto-populate from profile or be user-specified scenario.
+    filing_status: FilingStatus = Field(FilingStatus.single,
+        description="Federal tax filing status which can auto-populate from profile if provided")
+    state: str = Field("NY",
+        description="Two letter state code for tax purposes which can auto-populate from profile if provided")
+
+
+    # NPV (Net present value) discount rate for comparing the cash flows across different time periods.
+    # Utilized to weigh out different scenarios (Ex: "Is buying better than renting?")
+    annual_discount_rate: float = Field(0.025, ge = 0.0, le = 0.75,
+        description="The annual discount rate for NPV calculations")
+
+    
+    # Reporting deflator calculation which controls the conversion from nominal to real dollars.
+    # DISPLAY PURPOSES ONLY (NOT USED IN CALCULATIONS)
+    reporting_deflator: ReportingDeflator = Field(ReportingDeflator.none,
+        description="Deflator mode used to convert nominal to real dollars for the outputs")
+    # Deflation used ONLY when reporting_deflator is at a "fixed_rate".
+    annual_deflator_rate: float = Field(0.025, ge = -0.3, le = 0.3,
+        description="Annual deflation rate when using the fixed_rate mode")
+    provider_source_deflator: str | None = Field(None,
+        description="Provider source used only when in provider mode")
+    
+
