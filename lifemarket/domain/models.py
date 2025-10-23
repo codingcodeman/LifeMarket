@@ -168,3 +168,25 @@ class GlobalInputs(BaseModel):
         description="Provider source used only when in provider mode")
     
 
+    # model_validator usage...
+    # A cross-field validation checker that will handle the calculations and validation of the models.
+    # If the models are in age-based mode, it will calculate the dates from the ages, then validate the logic.
+    # Will run AFTER the individual field validation ->>>>> (mode="after").
+    @model_validator(mode="after")
+    # Function which validates and calculates the timeline and will return a GlobalInputs object.
+    def validate_and_calculate_timeline(self) -> GlobalInputs:
+        # Used to call date.today() and avoids conflicts with the type annotation "date".
+        from datetime import date as dt_date
+        # Handles date arithmetic (months/years) precisely as actual dates rather than values.
+        from dateutil.relativedata import relativedata
+        
+        # Gets today's date as a baseline for calculations.
+        today = dt_date.today()
+        # Will calculate the current_age from birth_date if it isn't provided.
+        if self.birth_date and self.current_age is None:
+            age_change = relativedata(today, self.birth_date)
+            self.current_age = age_change.years + (age_change.months / 12.0)
+        
+        # AGE-BASED MODE - Calculates the dates from ages.
+        if self.timeline_mode == "age":
+            
