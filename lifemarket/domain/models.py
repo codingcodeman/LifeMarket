@@ -131,9 +131,9 @@ class GlobalInputs(BaseModel):
     start_age: float | None = Field(None, 
         description = "Starting age for the simulation where 'None' means to use the current_age")
     end_option: Literal["retirement", "lifespan"] | None = Field("retirement", 
-        description="The present endpoint when end_age is not specified ('retirement' = 65.5 and 'lifespan' = 80)")
+        description="The present endpoint when end_age is not specified ('retirement' = 67 and 'lifespan' = 80)")
     end_age: float | None = Field(None, 
-        description="Ending age for simulation where 'None' means to use the end_option preset)
+        description="Ending age for simulation where 'None' means to use the end_option preset")
 
 
     # Actual timeline dates used in simulation (either provided directly or calculated from ages).
@@ -174,19 +174,41 @@ class GlobalInputs(BaseModel):
     # Will run AFTER the individual field validation ->>>>> (mode="after").
     @model_validator(mode="after")
     # Function which validates and calculates the timeline and will return a GlobalInputs object.
-    def validate_and_calculate_timeline(self) -> GlobalInputs:
+    def validate_and_calculate_timeline(self) -> "GlobalInputs":
         # Used to call date.today() and avoids conflicts with the type annotation "date".
         from datetime import date as dt_date
         # Handles date arithmetic (months/years) precisely as actual dates rather than values.
-        from dateutil.relativedata import relativedata
+        from dateutil.relativedelta import relativedelta
         
         # Gets today's date as a baseline for calculations.
         today = dt_date.today()
         # Will calculate the current_age from birth_date if it isn't provided.
         if self.birth_date and self.current_age is None:
-            age_change = relativedata(today, self.birth_date)
+            age_change = relativedelta(today, self.birth_date)
             self.current_age = age_change.years + (age_change.months / 12.0)
         
         # AGE-BASED MODE - Calculates the dates from ages.
         if self.timeline_mode == "age":
+            # Ensures that we at least have the user's age.
+            if not self.birth_date or self.current_age is None:
+                raise ValueError("The age-based timeline requires current age or birthdate.")
             
+            # Figures out what age to actually START the model at.
+            if self.start_age is not None:
+                actual_start_age = self.start_age
+            else:
+                actual_start_age = self.current_age
+
+            # Figures out what age to END the model at.
+            if self.end_age is not None:
+                actual_end_age = self.end_age
+            elif self.end_option == "retirement":
+                actual_end_age = 67.0
+            else:
+                actual_end_age = 80.0
+
+            # Ensures that the end age is older than the starting age.
+            if actual_start_age >= actual_end_age:
+                raise ValueError("Starting age must be less than the ending age")
+            
+                
