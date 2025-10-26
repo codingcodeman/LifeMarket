@@ -128,12 +128,19 @@ class GlobalInputs(BaseModel):
 
     # Used when the timeline_mode is only in "age".
     # Start age defaults to current_age if not specified and end_age defaults to end_option preset if not specified.
-    start_age: float | None = Field(None, 
-        description = "Starting age for the simulation where 'None' means to use the current_age")
+    start_age_years: int | None = Field(None, ge = 0, le = 120,
+        description = "Starting age for the simulation in whole years where 'None' means to use the current_age")
+    start_age_months: int | None = Field(None, ge = 0, le = 11,
+        description = "Starting age for the simulation in months")
+    
+    # End age in years and months.
+    end_age_years: int | None = Field(None, ge = 0, le = 120,
+        description="Ending age for simulation in years where 'None' means to use the end_option preset")
+    end_age_months: int | None = Field(None, ge = 0, le = 11,
+        description="Ending age for the simulation in months")
+
     end_option: Literal["retirement", "lifespan"] | None = Field("retirement", 
         description="The present endpoint when end_age is not specified ('retirement' = 67 and 'lifespan' = 80)")
-    end_age: float | None = Field(None, 
-        description="Ending age for simulation where 'None' means to use the end_option preset")
 
 
     # Actual timeline dates used in simulation (either provided directly or calculated from ages).
@@ -194,14 +201,18 @@ class GlobalInputs(BaseModel):
                 raise ValueError("The age-based timeline requires current age or birthdate.")
             
             # Figures out what age to actually START the model at.
-            if self.start_age is not None:
-                actual_start_age = self.start_age
+            if self.start_age_years is not None and self.start_age_months is not None:
+                actual_start_age = self.start_age_years + (self.start_age_months / 12.0)
+            elif self.start_age_years is not None:
+                actual_start_age = self.start_age_years
             else:
                 actual_start_age = self.current_age
 
             # Figures out what age to END the model at.
-            if self.end_age is not None:
-                actual_end_age = self.end_age
+            if self.end_age_years is not None and self.end_age_months is not None:
+                actual_end_age = self.end_age_years + (self.end_age_months / 12.0)
+            elif self.end_age_years is not None:
+                actual_end_age = self.end_age_years
             elif self.end_option == "retirement":
                 actual_end_age = 67.0
             else:
@@ -211,4 +222,33 @@ class GlobalInputs(BaseModel):
             if actual_start_age >= actual_end_age:
                 raise ValueError("Starting age must be less than the ending age")
             
-                
+            # Checks to see if the actual start age is less than the current age
+            if actual_start_age < self.current_age:
+                raise ValueError("The starting age cannot be less than your current age.")
+            
+            # Finds the number of years until the model starts its predictions.
+            years_to_start = actual_start_age - self.current_age
+            # Calculates the number of years until the model ends its predictions.
+            years_to_end = actual_end_age - self.current_age
+
+            # Converts the starting date into an actual calendar date.
+            self.start_date = today + relativedelta(
+                years = int(years_to_start), months = int((years_to_start % 1) * 12)
+            )
+            # Converts the ending date into an actual calendar date.
+            self.end_date = today + relativedelta(
+                years = int(years_to_end), months = int((years_to_end % 1) * 12)
+            )
+
+        
+        # DATE-BASED MODE - Validates the originally provided dates.
+        # timeline_mode == date
+        else:
+            if not self.start_date or not self.end_date:
+                raise ValueError("Date-based timeline requires both a start_date and end_date")
+
+        # The final validation check to see if the end_date comes after the start_date.
+        if self.start_date >= self.end_date:
+            raise ValueError("The end_date must be later than the start_date")
+
+        return self
