@@ -67,8 +67,8 @@ class CarStatus(str, Enum):
 class HousingMetrics(BaseModel):
     housing_kind: HousingKind = Field(default = HousingKind.rent,
         description="How you pay for housing")
-    housing_payment_monthly: float = Field(default = 0.0, ge = 0.0,
-        description="Your monthly rent or mortgage payment in dollars")
+    housing_payment_monthly: Optional[float] = Field(default = None, ge = 0.0,
+        description="Your monthly rent or mortgage payment in dollars (leave blank if unknown).")
     has_renters_insurance: Optional[bool] = Field(default = None,
         description="If you are renting, are you also paying for renters insurance?")
     
@@ -76,14 +76,53 @@ class HousingMetrics(BaseModel):
     # If you are paying rent or mortgage, the payment must be greater than 0.
     def check_housing_payment(self) -> "HousingMetrics":
         if self.housing_kind in (HousingKind.rent, HousingKind.mortgage):
-            if self.housing_payment_monthly <= 0:
-                raise ValueError("Please enter monthly rent greater than 0.")
+            if self.housing_payment_monthly is None or self.housing_payment_monthly <= 0:
+                raise ValueError("Please enter a monthly rent/mortgage value greater than 0.")
         return self
 
-# If the user pays itself, the monthly premium should be a number.
+# Who pays? If the user pays itself, the monthly premium should be a number.
+# The monthly premium also must be greater than 0.
 class HealthInsuranceMetrics(BaseModel):
     payer: HealthPayer = Field(default = HealthPayer.parents,
         description="Who pays for your health insurance")
-    health_premium_monthly: float = Field(default = 0.0, ge = 0.0,
-        description="How many dollars per month you pay")
+    health_premium_monthly: Optional[float] = Field(default = None, ge = 0.0,
+        description="How many dollars per month you pay (leave blank if parents/None)")
     
+    @model_validator(mode="after")
+    # If the user is paying, the monthly payment should be greater than 0.
+    def check_health_payment(self) -> "HealthInsuranceMetrics":
+        # Checks to see if the payer is self_pay and that the monthly premium is also less than or equal to 0.
+        if self.payer == HealthPayer.self_pay:
+            if self.health_premium_monthly is None or self.health_premium_monthly <= 0:
+                raise ValueError("Please enter a positive value for the monthly premium.")
+        return self
+    
+
+# The car loan situation (none / paid_off / parents_paying / monthly_payment).
+# If the user is doing a monthly payment, they have to enter in the numeric monthly payment.
+# Gas information: price per gallon, miles per month, miles per gallon (all optional).
+class CarMetrics(BaseModel):
+    status: CarStatus = Field(default = CarStatus.parents_paying,
+        description="Your car payment status")
+    monthly_car_payment: Optional[float] = Field(default = None, ge = 0.0,
+        description="If you have a monthly car payment, enter that amount here.")
+    # Optional metrics
+    avg_price_per_gallon: Optional[float] = Field(default = None, ge = 0.0,
+        description="Average price per gallon. Leave empty to use app default later.")
+    miles_per_month: Optional[float] = Field(default = None, ge = 0.0,
+        description="Approximate number of miles you drive each month.")
+    miles_per_gallon: Optional[float] = Field(default = None, ge = 1.0,
+        description="Your car's miles per gallon (must be >= 1 if set).")
+    
+    @model_validator(mode="after")
+    def check_car_payment(self) -> "CarMetrics":
+        if self.status == CarStatus.monthly_payment:
+            if self.monthly_car_payment is None or self.monthly_car_payment <= 0:
+                raise ValueError("Please enter a positive value for the monthly car payment")
+        return self
+    
+# Creates the everyday spending buckets if they would like to enter in their own values or not.
+# When a user does not use a bucket, it is left as 0
+class CoreExpenses(BaseModel):
+    groceries_monthly: float = Field(default = 0.0, ge = 0.0,
+        description="Monthly grocery bill")
